@@ -1,6 +1,5 @@
 CC = g++
 include vars.txt
-TESTS_QUANTITY = 10
 FLAGS = -std=c++17 -Wall -Wextra -Werror -Wpedantic -g -fsanitize=address
 DEFINES = -D MAX_BLOCKS=$(MAX_BLOCKS) -D MIN_BLOCKS=$(MIN_BLOCKS) -D BLOCK_SIZE=$(BLOCK_SIZE) -D ZERO_PROPORTION=$(ZERO_PROPORTION)
 
@@ -20,14 +19,11 @@ clean_bin:
 clean_test:
 	rm -f *.in 
 
-	
 .PHONY: test
 test: testgenerator.o hasher.out
 	./testgenerator.o $(TESTS_QUANTITY)
 	touch test.txt
-	for i in $(shell seq 1 $(TESTS_QUANTITY)); do \
-        ./hasher.out $$i.in >> test.txt; \
-    done
+	./hasher.out $(shell echo *.in) >> test.txt
 	$(MAKE) clean_bin
 
 
