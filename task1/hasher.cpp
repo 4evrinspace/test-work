@@ -27,7 +27,7 @@ int hash_file(const char *filename)
     std::vector<std::uint32_t> block(BLOCK_SIZE, 0);
     while (to_continue)
     {
-        ssize_t read_bytes = read(fd, &block, sizeof(std::uint32_t));
+        ssize_t read_bytes = read(fd, &block, to_read);
         if (read_bytes < 0)
         {
             std::cout << "Hasher: Can't read from file " << filename << std::endl;
