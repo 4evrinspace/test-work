@@ -23,29 +23,27 @@ int hash_file(const char *filename)
     data_processor_t processor;
     std::uint32_t result = 0;
     bool to_continue = true;
+    std::uint64_t to_read = BLOCK_SIZE * sizeof(std::uint32_t); //Сколько байт считывать за итерацию
     std::vector<std::uint32_t> block(BLOCK_SIZE, 0);
     while (to_continue)
     {
-        
-        //Считываем из файла байты для отдельного элемента 
-        // (чтобы обработать случай, когда не до конца считали элдемент)
-        for (int i = 0; i < BLOCK_SIZE; i++)
+        ssize_t read_bytes = read(fd, &block, sizeof(std::uint32_t));
+        if (read_bytes < 0)
         {
-            //Это необходимо для корректного случая, когда не полностью считали элемент
-            block[i] = 0;
-            ssize_t read_bytes = read(fd, &block[i], sizeof(std::uint32_t));
-            if (read_bytes < 0)
+            std::cout << "Hasher: Can't read from file " << filename << std::endl;
+            exit(-1);
+        } else if (read_bytes < to_read)
+        {
+            //Когда считали меньше чем нужно, смотрим сколько элементов считали
+            to_continue = false;
+            std::uint32_t number_of_read_elements = (read_bytes + sizeof(std::uint32_t) - 1) / sizeof(std::uint32_t);
+            if (read_bytes % sizeof(std::uint32_t) != 0)
             {
-                std::cout << "Hasher: Can't read from file " << filename << std::endl;
-                exit(-1);
+                //В случае, когда последний элемент считали не полностью, обнуляем лишние байты
+                std::uint32_t bytes_in_last = read_bytes % sizeof(std::uint32_t);
+                block[number_of_read_elements - 1] &= (1 << (bytes_in_last * 8)) - 1;
             }
-            if ((size_t)read_bytes < sizeof(std::uint32_t))
-            {
-                to_continue = false;
-                //Убераем лишние элементы (стоящие после последнего считанного)
-                block.resize(i + 1);
-                break;
-            }
+            block.resize(number_of_read_elements);
         }
         result = processor.process_block(block);
     }

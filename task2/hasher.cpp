@@ -8,6 +8,11 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
+#include <stdio.h>
+#include <stdlib.h>
 #ifndef BLOCK_SIZE
 #define BLOCK_SIZE 0x100000
 #endif
@@ -25,29 +30,28 @@ int hash_file(const char *filename)
     data_processor_t processor;
     std::uint32_t result = 0;
     bool to_continue = true;
+    std::uint64_t to_read = BLOCK_SIZE * sizeof(std::uint32_t); // Сколько байт считывать за итерацию
     std::vector<std::uint32_t> block(BLOCK_SIZE, 0);
     while (to_continue)
     {
-
-        // Считываем из файла байты для отдельного элемента
-        //  (чтобы обработать случай, когда не до конца считали элдемент)
-        for (int i = 0; i < BLOCK_SIZE; i++)
+        ssize_t read_bytes = read(fd, &block, sizeof(std::uint32_t));
+        if (read_bytes < 0)
         {
-            // Это необходимо для корректного случая, когда не полностью считали элемент
-            block[i] = 0;
-            ssize_t read_bytes = read(fd, &block[i], sizeof(std::uint32_t));
-            if (read_bytes < 0)
+            std::cout << "Hasher: Can't read from file " << filename << std::endl;
+            exit(-1);
+        }
+        else if (read_bytes < to_read)
+        {
+            // Когда считали меньше чем нужно, смотрим сколько элементов считали
+            to_continue = false;
+            std::uint32_t number_of_read_elements = (read_bytes + sizeof(std::uint32_t) - 1) / sizeof(std::uint32_t);
+            if (read_bytes % sizeof(std::uint32_t) != 0)
             {
-                std::cout << "Hasher: Can't read from file " << filename << std::endl;
-                exit(-1);
+                // В случае, когда последний элемент считали не полностью, обнуляем лишние байты
+                std::uint32_t bytes_in_last = read_bytes % sizeof(std::uint32_t);
+                block[number_of_read_elements - 1] &= (1 << (bytes_in_last * 8)) - 1;
             }
-            if ((size_t)read_bytes < sizeof(std::uint32_t))
-            {
-                to_continue = false;
-                // Убераем лишние элементы (стоящие после последнего считанного)
-                block.resize(i + 1);
-                break;
-            }
+            block.resize(number_of_read_elements);
         }
         result = processor.process_block(block);
     }
@@ -63,7 +67,35 @@ int hash_file(const char *filename)
 
 int main(int argc, char *argv[])
 {
-    //Создание разделяемой памяти 
+    // Семафор
+    int semid;
+    char pathname[] = "hasher.cpp";
+    key_t key;
+    struct sembuf mybuf;
+
+    if ((key = ftok(pathname, 0)) < 0)
+    {
+        std::cout << "Hasher: Can't generate key" << std::endl;
+        exit(-1);
+    }
+
+    if ((semid = semget(key, 1, 0666 | IPC_CREAT)) < 0)
+    {
+        std::cout << "Hasher: Can't create semaphore set" << std::endl;
+        exit(-1);
+    }
+
+    mybuf.sem_num = 0;
+    mybuf.sem_op = 1;
+    mybuf.sem_flg = 0;
+
+    if (semop(semid, &mybuf, 1) < 0)
+    {
+        std::cout << "Hasher: Can't add 1 to semaphore" << std::endl;
+        exit(-1);
+    }
+
+    // Создание разделяемой памяти
     std::uint32_t *hash = (std::uint32_t *)mmap(NULL, sizeof(std::uint32_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     if (hash == MAP_FAILED)
     {
@@ -80,7 +112,7 @@ int main(int argc, char *argv[])
     pid_t pid;
     std::vector<pid_t> pids(argc - 1);
     // Для дочернего процесса - исполняем функцию и завершаем
-    // для родительского - сохраняем айди 
+    // для родительского - сохраняем айди
     for (int i = 0; i < argc - 1; i++)
     {
         if ((pid = fork()) < 0)
@@ -91,7 +123,29 @@ int main(int argc, char *argv[])
         else if (pid == 0)
         {
             std::string filename(argv[i]);
-            (*hash) = hash_file(filename.c_str());
+            std::uint32_t tmp_hash = hash_file(filename.c_str());
+            // Закрываем доступ
+            mybuf.sem_num = 0;
+            mybuf.sem_op = -1;
+            mybuf.sem_flg = 0;
+
+            if (semop(semid, &mybuf, 1) < 0)
+            {
+                std::cout << "Hasher: Can't dec 1 from semaphore" << std::endl;
+                exit(-1);
+            }
+
+            (*hash) ^= tmp_hash;
+            // Открываем доступ
+            mybuf.sem_num = 0;
+            mybuf.sem_op = 1;
+            mybuf.sem_flg = 0;
+
+            if (semop(semid, &mybuf, 1) < 0)
+            {
+                std::cout << "Hasher: Can't add 1 to semaphore" << std::endl;
+                exit(-1);
+            }
             exit(0);
         }
         else
