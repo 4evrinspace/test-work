@@ -23,23 +23,24 @@ int hash_file(const char *filename)
     data_processor_t processor;
     std::uint32_t result = 0;
     bool to_continue = true;
-    std::uint64_t to_read = BLOCK_SIZE * sizeof(std::uint32_t); //Сколько байт считывать за итерацию
+    ssize_t to_read = BLOCK_SIZE * sizeof(std::uint32_t); // Сколько байт считывать за итерацию
     std::vector<std::uint32_t> block(BLOCK_SIZE, 0);
     while (to_continue)
     {
-        ssize_t read_bytes = read(fd, &block, to_read);
+        ssize_t read_bytes = read(fd, block.data(), to_read);
         if (read_bytes < 0)
         {
             std::cout << "Hasher: Can't read from file " << filename << std::endl;
             exit(-1);
-        } else if (read_bytes < to_read)
+        }
+        else if (read_bytes < to_read)
         {
-            //Когда считали меньше чем нужно, смотрим сколько элементов считали
+            // Когда считали меньше чем нужно, смотрим сколько элементов считали
             to_continue = false;
             std::uint32_t number_of_read_elements = (read_bytes + sizeof(std::uint32_t) - 1) / sizeof(std::uint32_t);
             if (read_bytes % sizeof(std::uint32_t) != 0)
             {
-                //В случае, когда последний элемент считали не полностью, обнуляем лишние байты
+                // В случае, когда последний элемент считали не полностью, обнуляем лишние байты
                 std::uint32_t bytes_in_last = read_bytes % sizeof(std::uint32_t);
                 block[number_of_read_elements - 1] &= (1 << (bytes_in_last * 8)) - 1;
             }

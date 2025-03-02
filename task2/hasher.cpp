@@ -30,11 +30,11 @@ int hash_file(const char *filename)
     data_processor_t processor;
     std::uint32_t result = 0;
     bool to_continue = true;
-    std::uint64_t to_read = BLOCK_SIZE * sizeof(std::uint32_t); // Сколько байт считывать за итерацию
+    ssize_t to_read = BLOCK_SIZE * sizeof(std::uint32_t); // Сколько байт считывать за итерацию
     std::vector<std::uint32_t> block(BLOCK_SIZE, 0);
     while (to_continue)
     {
-        ssize_t read_bytes = read(fd, &block, to_read);
+        ssize_t read_bytes = read(fd, block.data(), to_read);
         if (read_bytes < 0)
         {
             std::cout << "Hasher: Can't read from file " << filename << std::endl;
@@ -113,7 +113,7 @@ int main(int argc, char *argv[])
     std::vector<pid_t> pids(argc - 1);
     // Для дочернего процесса - исполняем функцию и завершаем
     // для родительского - сохраняем айди
-    for (int i = 0; i < argc - 1; i++)
+    for (int i = 1; i < argc; i++)
     {
         if ((pid = fork()) < 0)
         {
@@ -150,7 +150,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            pids[i] = pid;
+            pids[i - 1] = pid;
         }
     }
 
